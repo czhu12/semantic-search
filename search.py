@@ -28,11 +28,23 @@ class Ranker(object):
         self.query_embedding = query_embedding
         self.document_embedding = document_embedding
 
-    def _embed(self, tokens, embedding):
-        embedding = np.mean(
-            np.array([embedding[token] for token in tokens if token in embedding]),
+    def _create_mean_embedding(self, word_embeddings):
+        return np.mean(
+            word_embeddings,
             axis=0,
         )
+
+    def _create_max_embedding(self, word_embeddings):
+        return np.amax(
+            word_embeddings,
+            axis=0,
+        )
+
+    def _embed(self, tokens, embedding):
+        word_embeddings = np.array([embedding[token] for token in tokens if token in embedding])
+        mean_embedding = self._create_mean_embedding(word_embeddings)
+        max_embedding = self._create_max_embedding(word_embeddings)
+        embedding = np.concatenate([mean_embedding, max_embedding])
         unit_embedding = embedding / (embedding**2).sum()**0.5
         return unit_embedding
 
@@ -115,6 +127,28 @@ def main(path, query):
 
     print("======== Embedding ========")
     show_scores(reranked_documents, ranker_scores, 20)
+
+    print("======== Samples ========")
+    documents = [
+        "An investment bonanza is coming",
+        "Who governs a country's airspace?",
+        "What is a supermoon, and how noticeable is it to the naked eye?",
+        "What the evidence says about police body-cameras",
+        "Who controls Syria?",
+    ]
+    corpus = [list(gensim.utils.tokenize(doc.lower())) for doc in documents]
+    queries = [
+        "banking",
+        "astrology",
+        "middle east",
+    ]
+    for query in queries:
+        tokenized_query = tokenize(query)
+        indexes, scores = ranker.rank(tokenized_query, corpus)
+        print(query)
+        for rank, index in enumerate(indexes):
+            document = documents[index]
+            print("Rank: {} | Top Article: {}".format(rank, document))
 
 if __name__ == "__main__":
     main()
