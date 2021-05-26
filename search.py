@@ -29,15 +29,19 @@ class Ranker(object):
         self.document_embedding = document_embedding
 
     def _embed(self, tokens, embedding):
-        return np.mean(
+        embedding = np.mean(
             np.array([embedding[token] for token in tokens if token in embedding]),
             axis=0,
         )
+        unit_embedding = embedding / (embedding**2).sum()**0.5
+        return unit_embedding
 
     def rank(self, tokenized_query, tokenized_documents):
+        """
+        Re-ranks a set of documents according to embedding distance
+        """
         query_embedding = self._embed(tokenized_query, self.query_embedding) # (E,)
         document_embeddings = np.array([self._embed(document, self.document_embedding) for document in tokenized_documents]) # (N, E)
-        rankings = document_embeddings.dot(query_embedding) # (N,)
         scores = document_embeddings.dot(query_embedding)
         index_rankings = np.argsort(scores)[::-1]
         return index_rankings, np.sort(scores)[::-1]
@@ -71,6 +75,13 @@ def tokenize(document):
     return list(gensim.utils.tokenize(document.lower()))
 
 
+def show_scores(documents, scores, n=10):
+    for i in range(n):
+        print("======== RANK: {} | SCORE: {} =======".format(i + 1, scores[i]))
+        print(documents[i])
+        print("")
+    print("\n")
+
 @click.command()
 @click.option("--path", prompt="Path to document TSV", help="Document TSV")
 @click.option("--query", prompt="Search query", help="Search query")
@@ -87,22 +98,23 @@ def main(path, query):
     print(" [DONE]")
     
     retriever = Retriever(corpus)
-    indexes, retrieval_scores = retriever.query(tokenized_query)
+    retrieval_indexes, retrieval_scores = retriever.query(tokenized_query)
 
-    retrieved_documents = [documents[idx] for idx in indexes]
-    tokenzed_retrieved_documents = [corpus[idx] for idx in indexes]
+    retrieved_documents = [documents[idx] for idx in retrieval_indexes]
+    print("======== BM25 ========")
+    show_scores(retrieved_documents, retrieval_scores, 20)
+
+    tokenzed_retrieved_documents = [corpus[idx] for idx in retrieval_indexes]
 
     print("Loading glove embeddings...", end="")
     query_embedding = api.load('glove-wiki-gigaword-50')
     print(" [DONE]")
     ranker = Ranker(query_embedding=query_embedding, document_embedding=query_embedding)
-    indexes, ranker_scores = ranker.rank(tokenized_query, tokenzed_retrieved_documents)
-    final_rankings = [retrieved_documents[idx] for idx in indexes]
+    ranker_indexes, ranker_scores = ranker.rank(tokenized_query, tokenzed_retrieved_documents)
+    reranked_documents = [retrieved_documents[idx] for idx in ranker_indexes]
 
-    print("\n\n\n")
-    for i in range(50):
-        print("======== RANK: {} | RETRIEVAL SCORE: {} | RANKER SCORE: {} =======".format(i + 1, retrieval_scores[i], ranker_scores[i]))
-        print(final_rankings[i])
+    print("======== Embedding ========")
+    show_scores(reranked_documents, ranker_scores, 20)
 
 if __name__ == "__main__":
     main()
